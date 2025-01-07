@@ -1,0 +1,92 @@
+#使用的模型
+FROM E:\OLLAMA_MODELS\blobs\sha256-2049f5674b1e92b4464e5729975c9689fcfbf0b0e4443ccf10b5339f370f9a54
+
+#启用Mirostat算法以控制困惑度(perplexity)。 Mirostat算法可以有效减少结果中重复的发生。perplexity是指对词语预测的不确定性 (default: 0, 0 = disabled, 1 = Mirostat, 2 = Mirostat 2.0)
+PARAMETER mirostat 2
+
+#它影响算法对生成文本反馈的响应速度。学习率较低会导致调整更慢，而较高的学习率则会使算法反应更加迅速。 (Default: 0.1)
+PARAMETER mirostat_eta 0.1
+
+#控制输出的连贯性和多样性之间的平衡。较低的值会使得文本更集中和连贯，而较高的值则会带来更大的多样性。 (Default: 5.0)
+PARAMETER mirostat_tau 2.2
+
+#设置生成下一个token时使用的上下文窗口大小。(Default: 2048)
+PARAMETER num_ctx 8192
+
+#设定了模型需要回顾多少信息来以防止重复。 (Default: 64, 0 = disabled, -1 = num_ctx)
+PARAMETER repeat_last_n -1
+
+#设定了重复惩罚的强度。较高的值（例如，1.5）会更强烈地处罚重复，而较低的值（如0.9）则会宽容一些. (Default: 1.1)
+PARAMETER repeat_penalty 1.1
+
+#模型的温度。 temperature通常用于控制随机性和多样性，提高温度意味着更高的随机性，可能导致更出乎意料但可能更有创意的答案。(Default: 0.8)
+PARAMETER temperature 0.62
+
+#设置了生成时使用的随机数种子。设置特定的数值将使得模型对于相同的提示会生成相同的文本。(Default: 0)
+#PARAMETER seed 0
+
+#生成文本时预测的最大token数量。 (Default: 128, -1 = infinite generation(无限制), -2 = fill context(根据上下文填充完整fill the context to its maximum))
+PARAMETER num_predict 128
+
+#减少生成无意义内容的概率。较高的值（例如，100）会使答案更加多样，而较低的值（如，10）则会更为保守。 (Default: 40)
+PARAMETER top_k 20
+
+#top-k协同工作。较高的值（例如，0.95）将导致更丰富的文本多样性，而较低的值（如，0.5）则会生成更聚焦和保守的内容。(Default: 0.9)
+PARAMETER top_p 0.82
+
+#发送到 GPU 的层数。在 macOS 上，默认值为 1 以启用 Metal 支持，为 0 则禁用。
+PARAMETER num_gpu 29
+
+#设置计算过程中要使用的线程数。默认情况下，Ollama 会检测以获得最佳性能。建议将此值设置为系统实际物理 CPU 核心数（而非逻辑核心数）。
+PARAMETER num_thread 16
+
+TEMPLATE """{{- if .Messages }}
+{{- if or .System .Tools }}<|im_start|>system
+{{- if .System }}
+{{ .System }}
+{{- end }}
+{{- if .Tools }}
+
+# Tools
+
+You may call one or more functions to assist with the user query.
+
+You are provided with function signatures within <tools></tools> XML tags:
+<tools>
+{{- range .Tools }}
+{"type": "function", "function": {{ .Function }}}
+{{- end }}
+</tools>
+
+For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
+<tool_call>
+{"name": <function-name>, "arguments": <args-json-object>}
+</tool_call>
+{{- end }}<|im_end|>
+{{ end }}
+{{- range $i, $_ := .Messages }}
+{{- $last := eq (len (slice $.Messages $i)) 1 -}}
+{{- if eq .Role "user" }}<|im_start|>user
+{{ .Content }}<|im_end|>
+{{ else if eq .Role "assistant" }}<|im_start|>assistant
+{{ if .Content }}{{ .Content }}
+{{- else if .ToolCalls }}<tool_call>
+{{ range .ToolCalls }}{"name": "{{ .Function.Name }}", "arguments": {{ .Function.Arguments }}}
+{{ end }}</tool_call>
+{{- end }}{{ if not $last }}<|im_end|>
+{{ end }}
+{{- else if eq .Role "tool" }}<|im_start|>user
+<tool_response>
+{{ .Content }}
+</tool_response><|im_end|>
+{{ end }}
+{{- if and (ne .Role "assistant") $last }}<|im_start|>assistant
+{{ end }}
+{{- end }}
+{{- else }}
+{{- if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end }}{{ if .Prompt }}<|im_start|>user
+{{ .Prompt }}<|im_end|>
+{{ end }}<|im_start|>assistant
+{{ end }}{{ .Response }}{{ if .Response }}<|im_end|>{{ end }}"""
